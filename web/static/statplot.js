@@ -1305,8 +1305,10 @@ function showDownloads() {
 // Protokoll (window.postMessage, alle Nachrichten sind Objekte):
 //   App -> Host:  {source:'statplot', event:'ready'}
 //   Host -> App:  {target:'statplot', action:'load', csv?:<Text>, name?, path?,
-//                  downloads?:true, open?:true, code?:true, clipboard?:true, nit?:true}
+//                  downloads?:true, open?:true, code?:true, clipboard?:true, nit?:true,
+//                  save?:false}
 //   App -> Host:  {source:'statplot', event:'save', svg:<SVG-Text>, name, width, height}
+//                 (Knopf „In Projekt übernehmen“; save:false blendet ihn aus)
 //   App -> Host:  {source:'statplot', event:'exit'}
 //   App -> Host:  {source:'statplot', event:'download', name, mime, blob:<Blob>}
 //   App -> Host:  {source:'statplot', event:'open'}             (nur mit open:true)
@@ -1320,7 +1322,7 @@ const PARAMS = new URLSearchParams(location.search);
 const EMBED = PARAMS.get('embed') === '1' && window.parent !== window;
 const DESKTOP = PARAMS.get('desktop') === '1';
 let embedOrigin = null;
-const hostCaps = { downloads: false, open: false, code: false, clipboard: false, nit: false };
+const hostCaps = { downloads: false, open: false, code: false, clipboard: false, nit: false, save: true };
 
 function embedSend(msg, origin) { window.parent.postMessage(Object.assign({ source: 'statplot' }, msg), origin); }
 
@@ -1352,6 +1354,7 @@ function initEmbed() {
     embedOrigin = e.origin;
     for (const k of Object.keys(hostCaps)) if (k in m) hostCaps[k] = m[k] === true;
     document.body.classList.toggle('host-code', hostCaps.code);
+    save.hidden = !hostCaps.save;
     if (typeof m.csv === 'string') loadText(m.csv, typeof m.name === 'string' ? m.name : '', typeof m.path === 'string' ? m.path : '');
   });
   embedSend({ event: 'ready' }, '*');   // enthält keine Daten
