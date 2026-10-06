@@ -1451,23 +1451,37 @@ function entryResizeFromInputs() {
   entryRender();
 }
 
-function entryApply() {
-  const err = byId('entry-error');
+/** Eingabetabelle → CSV-Text oder Fehlermeldung. */
+function entryCsv() {
   const heads = entry.headers.map((h, c) => (h.trim() || `Spalte ${c + 1}`));
-  if (new Set(heads).size !== heads.length) { err.textContent = 'Spaltennamen müssen verschieden sein.'; return; }
-  if (heads.every(h => S.toFloat(h) !== null)) { err.textContent = 'Mindestens ein Spaltenname darf keine reine Zahl sein.'; return; }
+  if (new Set(heads).size !== heads.length) return { error: 'Spaltennamen müssen verschieden sein.' };
+  if (heads.every(h => S.toFloat(h) !== null)) return { error: 'Mindestens ein Spaltenname darf keine reine Zahl sein.' };
   const rows = entry.rows.filter(r => r.some(v => v.trim() !== ''));
-  if (!rows.length) { err.textContent = 'Bitte mindestens einen Wert eintragen.'; return; }
+  if (!rows.length) return { error: 'Bitte mindestens einen Wert eintragen.' };
   const q = v => (/[;"\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v);
-  const text = [heads, ...rows].map(r => r.map(v => q(v.trim())).join(';')).join('\n') + '\n';
+  return { text: [heads, ...rows].map(r => r.map(v => q(v.trim())).join(';')).join('\n') + '\n' };
+}
+
+function entryApply() {
+  const res = entryCsv();
+  byId('entry-error').textContent = res.error || '';
+  if (res.error) return;
   closeOverlays();
-  loadText(text, 'eingabe.csv', '');
+  loadText(res.text, 'eingabe.csv', '');
+}
+
+function entryExport() {
+  const res = entryCsv();
+  byId('entry-error').textContent = res.error || '';
+  if (res.error) return;
+  downloadBlob(new Blob([res.text], { type: 'text/csv' }), 'messwerte.csv');
 }
 
 function initEntry() {
   on('btn-entry', 'click', openEntry);
   on('entry-cancel', 'click', closeOverlays);
   on('entry-apply', 'click', entryApply);
+  on('entry-export', 'click', entryExport);
   on('entry-cols', 'change', entryResizeFromInputs);
   on('entry-rows', 'change', entryResizeFromInputs);
   on('entry-clear', 'click', () => { entry.rows.forEach(r => r.fill('')); entryRender(); });

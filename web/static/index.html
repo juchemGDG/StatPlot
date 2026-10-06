@@ -164,7 +164,8 @@
         <ul>
           <li><b>CSV öffnen</b> lädt eine CSV-Datei, z. B. eine Messreihe aus dem Serial Plotter oder eine Umfrage. Datei auch einfach auf das Fenster ziehen. Trennzeichen <code>;</code>, <code>,</code> oder Tabulator und deutsches Dezimalkomma werden automatisch erkannt.</li>
           <li>Die erste Zeile mit Spaltennamen wird erkannt; fehlt sie, heißen die Spalten „Spalte 1“, „Spalte 2“ …</li>
-          <li><b>Daten eingeben</b> öffnet eine Tabelle zum Eintippen eigener Messwerte (z. B. aus dem Physikpraktikum): Spaltennamen, Anzahl der Spalten und Zeilen sind frei wählbar. „Übernehmen“ macht sie zur Datengrundlage für Diagramme, Kennwerte und Tests; erneutes Öffnen ergänzt die vorhandenen Daten.</li>
+          <li><b>Daten eingeben</b> öffnet eine Tabelle zum Eintippen eigener Messwerte (z. B. aus dem Physikpraktikum): Spaltennamen, Anzahl der Spalten und Zeilen sind frei wählbar. „Übernehmen“ macht sie zur Datengrundlage für Diagramme, Kennwerte und Tests; erneutes Öffnen ergänzt die vorhandenen Daten. Mit „Als CSV speichern“ sicherst du deine Messwerte als Datei und kannst sie später über „CSV öffnen“ wieder laden.</li>
+          <li><b>Tipp zur Auswertung:</b> Daten lassen sich besonders gut vergleichen, wenn sie eine <b>Kategorie-Spalte</b> haben, z. B. bitter / nicht bitter, Geschlecht oder Klasse. Trage diese beim Eingeben als eigene Spalte ein und wähle sie dann bei „Kategorie“ aus – so erscheinen Diagramme, Kennwerte und Tests je Gruppe.</li>
           <li><b>Beispieldaten</b> lädt eine kleine Klassenumfrage zum Ausprobieren.</li>
         </ul>
       </section>
@@ -216,6 +217,7 @@
     <div id="entry-error" class="dialog-hint"></div>
     <div class="dialog-buttons">
       <button id="entry-clear" class="btn-secondary" type="button">Leeren</button>
+      <button id="entry-export" class="btn-secondary" type="button" title="Messwerte als CSV-Datei speichern, um sie aufzubewahren">Als CSV speichern</button>
       <button id="entry-cancel" class="btn-secondary" type="button">Abbrechen</button>
       <button id="entry-apply" class="btn-primary" type="button">Übernehmen</button>
     </div>
