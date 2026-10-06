@@ -19,6 +19,9 @@ weiterhin eingebettet in NIT_Code.
   `;`, `,` oder Tabulator, deutsches Dezimalkomma und eine Kopfzeile werden
   automatisch erkannt; Dateien aus Excel (Windows-1252) gehen auch.
   „Beispieldaten“ lädt eine kleine Klassenumfrage.
+- **Daten eingeben:** Tabelle zum Eintippen eigener Messwerte (z. B. vom Messgerät) mit
+  frei benennbaren Spalten und wählbarer Spalten-/Zeilenzahl; Einfügen aus Excel
+  möglich. „Übernehmen“ macht sie zur Datengrundlage für alles Weitere.
 - **Diagramme:** Streu-, Linien-, Säulen-, Balken-, Kreisdiagramm, Histogramm
   und Boxplot. Eine beliebige Spalte dient als **Kategorie**: Punkte werden je
   Kategorie eingefärbt, Säulen/Kreisstücke/Boxplots je Kategorie gebildet.

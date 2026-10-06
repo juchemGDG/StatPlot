@@ -1402,8 +1402,105 @@ function selectTab(name) {
 // ════════════════════════════════════════════════════════════
 // Start
 // ════════════════════════════════════════════════════════════
+
+// ── Daten von Hand eingeben ──────────────────────────────────
+const entry = { headers: [], rows: [] };
+
+function entryResize(cols, rows) {
+  cols = Math.min(30, Math.max(1, cols | 0));
+  rows = Math.min(1000, Math.max(1, rows | 0));
+  entry.headers.length = cols;
+  for (let c = 0; c < cols; c++) if (entry.headers[c] === undefined) entry.headers[c] = `Spalte ${c + 1}`;
+  while (entry.rows.length > rows) entry.rows.pop();
+  while (entry.rows.length < rows) entry.rows.push([]);
+  entry.rows.forEach(r => { r.length = cols; for (let c = 0; c < cols; c++) if (r[c] === undefined) r[c] = ''; });
+  byId('entry-cols').value = cols;
+  byId('entry-rows').value = rows;
+}
+
+function entryRender() {
+  const t = byId('entry-table');
+  const head = entry.headers.map((h, c) => `<th><input data-r="-1" data-c="${c}" value="${escAttr(h)}" aria-label="Spaltenname ${c + 1}"></th>`).join('');
+  const body = entry.rows.map((row, r) =>
+    `<tr><th class="rn">${r + 1}</th>` +
+    row.map((v, c) => `<td><input data-r="${r}" data-c="${c}" value="${escAttr(v)}" inputmode="decimal" autocomplete="off"></td>`).join('') + '</tr>').join('');
+  t.innerHTML = `<thead><tr><th class="rn"></th>${head}</tr></thead><tbody>${body}</tbody>`;
+}
+
+function escAttr(v) { return String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
+
+function openEntry() {
+  entry.headers = state.headers.slice();
+  entry.rows = state.rows.map(r => state.headers.map((_, c) => (r[c] === undefined || r[c] === null ? '' : String(r[c]))));
+  if (!entry.headers.length) { entry.headers = ['x', 'y']; entry.rows = []; }
+  entryResize(entry.headers.length, entry.rows.length || 10);
+  byId('entry-error').textContent = '';
+  entryRender();
+  byId('entry-modal').classList.add('open');
+  const first = byId('entry-table').querySelector('tbody input');
+  if (first) first.focus();
+}
+
+function entryResizeFromInputs() {
+  const cols = parseInt(byId('entry-cols').value, 10), rows = parseInt(byId('entry-rows').value, 10);
+  if (!(cols >= 1) || !(rows >= 1)) return;
+  entryResize(cols, rows);
+  entryRender();
+}
+
+function entryApply() {
+  const err = byId('entry-error');
+  const heads = entry.headers.map((h, c) => (h.trim() || `Spalte ${c + 1}`));
+  if (new Set(heads).size !== heads.length) { err.textContent = 'Spaltennamen müssen verschieden sein.'; return; }
+  if (heads.every(h => S.toFloat(h) !== null)) { err.textContent = 'Mindestens ein Spaltenname darf keine reine Zahl sein.'; return; }
+  const rows = entry.rows.filter(r => r.some(v => v.trim() !== ''));
+  if (!rows.length) { err.textContent = 'Bitte mindestens einen Wert eintragen.'; return; }
+  const q = v => (/[;"\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v);
+  const text = [heads, ...rows].map(r => r.map(v => q(v.trim())).join(';')).join('\n') + '\n';
+  closeOverlays();
+  loadText(text, 'eingabe.csv', '');
+}
+
+function initEntry() {
+  on('btn-entry', 'click', openEntry);
+  on('entry-cancel', 'click', closeOverlays);
+  on('entry-apply', 'click', entryApply);
+  on('entry-cols', 'change', entryResizeFromInputs);
+  on('entry-rows', 'change', entryResizeFromInputs);
+  on('entry-clear', 'click', () => { entry.rows.forEach(r => r.fill('')); entryRender(); });
+  const table = byId('entry-table');
+  table.addEventListener('input', e => {
+    const i = e.target, r = +i.dataset.r, c = +i.dataset.c;
+    if (r < 0) entry.headers[c] = i.value; else entry.rows[r][c] = i.value;
+  });
+  table.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const i = e.target, r = +i.dataset.r, c = +i.dataset.c;
+    const nr = r + (e.key === 'ArrowUp' || (e.key === 'Enter' && e.shiftKey) ? -1 : 1);
+    if (nr >= entry.rows.length) {
+      if (e.key !== 'Enter' || entry.rows.length >= 1000) return;
+      entryResize(entry.headers.length, entry.rows.length + 1);
+      entryRender();
+    }
+    const next = table.querySelector(`input[data-r="${nr}"][data-c="${c}"]`);
+    if (next) { next.focus(); next.select(); }
+  });
+  table.addEventListener('paste', e => {
+    const txt = (e.clipboardData || window.clipboardData).getData('text');
+    if (!/[\t\n]/.test(txt.replace(/\r?\n$/, ''))) return;
+    e.preventDefault();
+    const i = e.target, r0 = Math.max(0, +i.dataset.r), c0 = +i.dataset.c;
+    const grid = txt.replace(/\r?\n$/, '').split(/\r?\n/).map(l => l.split('\t'));
+    entryResize(Math.max(entry.headers.length, c0 + Math.max(...grid.map(g => g.length))), Math.max(entry.rows.length, r0 + grid.length));
+    grid.forEach((g, dr) => g.forEach((v, dc) => { entry.rows[r0 + dr][c0 + dc] = v.trim(); }));
+    entryRender();
+  });
+}
+
 function init() {
   buildTypeCards();
+  initEntry();
   fillSelect(byId('sel-agg'), Object.keys(S.AGGREGATIONS));
   initTests();
 
