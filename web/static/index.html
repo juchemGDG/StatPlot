@@ -8,7 +8,7 @@
   <link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <!-- Cache-Buster: bei jedem Deploy hochzählen, sonst liefern Browser/Hosting alte Dateien aus -->
-  <link rel="stylesheet" href="statplot.css?v=2">
+  <link rel="stylesheet" href="statplot.css?v=3">
 </head>
 <body>
 
@@ -28,6 +28,10 @@
           <svg class="card-icon" viewBox="0 0 24 24" data-icon="open"></svg>
           <span class="palette-text"><span class="palette-name">CSV öffnen …</span><span class="palette-hint">Messreihe oder Umfrage laden</span></span>
         </button>
+        <button id="card-add" class="palette-card" type="button">
+          <svg class="card-icon" viewBox="0 0 24 24" data-icon="add"></svg>
+          <span class="palette-text"><span class="palette-name">CSV hinzufügen …</span><span class="palette-hint">zweite Messreihe zum Vergleich</span></span>
+        </button>
         <div id="file-label" class="muted side-note">Noch keine Datei geladen</div>
       </div>
 
@@ -44,6 +48,10 @@
         <label class="field" id="f-cat"><span class="field-label" id="lbl-cat">Kategorie</span><select id="sel-cat"></select></label>
         <label class="field" id="f-width"><span class="field-label">Klassenbreite</span>
           <input id="inp-width" type="text" inputmode="decimal" placeholder="automatisch" autocomplete="off"></label>
+        <div class="field" id="f-xrange"><span class="field-label">X-Achse: von – bis</span>
+          <span class="range-row"><input id="inp-xmin" type="text" inputmode="decimal" placeholder="auto" autocomplete="off"><input id="inp-xmax" type="text" inputmode="decimal" placeholder="auto" autocomplete="off"></span></div>
+        <div class="field" id="f-yrange"><span class="field-label">Y-Achse: von – bis</span>
+          <span class="range-row"><input id="inp-ymin" type="text" inputmode="decimal" placeholder="auto" autocomplete="off"><input id="inp-ymax" type="text" inputmode="decimal" placeholder="auto" autocomplete="off"></span></div>
         <label class="check" id="f-rel"><input type="checkbox" id="chk-rel"> relative Häufigkeit</label>
         <label class="check" id="f-reg" title="Lineare Regression (Methode der kleinsten Quadrate) mit Geradengleichung und Bestimmtheitsmaß R²"><input type="checkbox" id="chk-reg"> Ausgleichsgerade</label>
         <label class="check" id="f-out" title="Antennen höchstens 1,5 Quartilsabstände lang, weiter entfernte Werte als Kreise – sonst reichen die Antennen bis Minimum/Maximum"><input type="checkbox" id="chk-out"> Ausreißer (1,5·IQR)</label>
@@ -62,6 +70,7 @@
 
       <nav id="menubar">
         <button id="btn-open"    class="btn-menu" type="button">CSV öffnen</button>
+        <button id="btn-add"     class="btn-menu" type="button" title="Weitere CSV-Datei dazunehmen, z. B. um zwei Messreihen zu vergleichen">CSV hinzufügen</button>
         <button id="btn-entry"   class="btn-menu" type="button" title="Messwerte von Hand in eine Tabelle eintragen">Daten eingeben</button>
         <button id="btn-example" class="btn-menu" type="button">Beispieldaten</button>
         <button id="btn-png"     class="btn-menu" type="button" title="Diagramm als Bild speichern">PNG export</button>
@@ -124,7 +133,7 @@
 
 </div><!-- #app -->
 
-<input type="file" id="file-input" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden>
+<input type="file" id="file-input" accept=".csv,.tsv,.txt,text/csv,text/plain" multiple hidden>
 
 <!-- ═══════ HINWEIS ═══════ -->
 <div id="modal" class="overlay">
@@ -164,6 +173,7 @@
         <ul>
           <li><b>CSV öffnen</b> lädt eine CSV-Datei, z. B. eine Messreihe aus dem Serial Plotter oder eine Umfrage. Datei auch einfach auf das Fenster ziehen. Trennzeichen <code>;</code>, <code>,</code> oder Tabulator und deutsches Dezimalkomma werden automatisch erkannt.</li>
           <li>Die erste Zeile mit Spaltennamen wird erkannt; fehlt sie, heißen die Spalten „Spalte 1“, „Spalte 2“ …</li>
+          <li><b>CSV hinzufügen</b> nimmt eine zweite (dritte …) Datei dazu, z. B. um zwei Messreihen zu vergleichen. Die Spalten werden über ihre Namen zugeordnet; die neue Spalte <b>Datei</b> sagt, woher eine Zeile stammt. Wähle sie bei „Kategorie“ (wird beim Hinzufügen automatisch gesetzt) – dann bekommt jede Datei ihre Farbe, Linie bzw. ihren eigenen Boxplot, und auch Kennwerte und t-Test (Gruppen) vergleichen die Dateien. Auch möglich: mehrere Dateien gleichzeitig auswählen oder mit gedrückter Umschalttaste ablegen. „CSV öffnen“ beginnt wieder mit einer einzelnen Datei.</li>
           <li><b>Daten eingeben</b> öffnet eine Tabelle zum Eintippen eigener Messwerte (z. B. aus dem Physikpraktikum): Spaltennamen, Anzahl der Spalten und Zeilen sind frei wählbar. „Übernehmen“ macht sie zur Datengrundlage für Diagramme, Kennwerte und Tests; erneutes Öffnen ergänzt die vorhandenen Daten. Mit „Als CSV speichern“ sicherst du deine Messwerte als Datei und kannst sie später über „CSV öffnen“ wieder laden.</li>
           <li><b>Tipp zur Auswertung:</b> Daten lassen sich besonders gut vergleichen, wenn sie eine <b>Kategorie-Spalte</b> haben, z. B. bitter / nicht bitter, Geschlecht oder Klasse. Trage diese beim Eingeben als eigene Spalte ein und wähle sie dann bei „Kategorie“ aus – so erscheinen Diagramme, Kennwerte und Tests je Gruppe.</li>
           <li><b>Beispieldaten</b> lädt eine kleine Klassenumfrage zum Ausprobieren.</li>
@@ -174,7 +184,8 @@
         <ul>
           <li>Links einen <b>Diagrammtyp</b> antippen, darunter die Spalten einstellen.</li>
           <li><b>Kategorie</b>: eine Spalte mit Gruppen (z. B. Klasse) färbt Punkte ein bzw. bildet je Gruppe eine Säule, ein Kreisstück oder einen Boxplot.</li>
-          <li>Streudiagramm: <b>Ausgleichsgerade</b> mit Gleichung und R². Boxplot: <b>Ausreißer</b>-Regel und <b>Werte beschriften</b>. Histogramm: <b>Klassenbreite</b> und relative Häufigkeit.</li>
+          <li>Streudiagramm: <b>Ausgleichsgerade</b> mit Gleichung und R². Boxplot: <b>Ausreißer</b>-Regel (die Ausreißer werden aus Boxplot und Kennwerten herausgerechnet) und <b>Werte beschriften</b>. Histogramm: <b>Klassenbreite</b> und relative Häufigkeit; die Zahlen unter den Balken sind die Klassenmitten.</li>
+          <li><b>Achsen skalieren</b>: Unter „X-Achse“ / „Y-Achse: von – bis“ lassen sich Anfang und Ende der Achse festlegen (ein Feld leer lassen = automatisch), z. B. um einen Ausschnitt zu vergrößern oder zwei Diagramme gleich zu skalieren.</li>
         </ul>
       </section>
       <section>
@@ -246,6 +257,6 @@
 <div id="drop-hint">CSV-Datei hier ablegen</div>
 
 <script src="stats.js?v=1"></script>
-<script src="statplot.js?v=3"></script>
+<script src="statplot.js?v=4"></script>
 </body>
 </html>

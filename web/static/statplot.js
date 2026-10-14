@@ -44,6 +44,7 @@ const ICONS = {
   [PIE]: '<path d="M11 4a8 8 0 1 0 8 8h-8z"/><path d="M14 2.5a8 8 0 0 1 7 7h-7z"/>',
   [HIST]: '<path d="M3 20h18"/><path d="M5 20v-5h4v5M9 20V8h4v12M13 20v-9h4v9M17 20v-3h3v3"/>',
   [BOX]: '<path d="M12 3v4M12 17v4M9 3h6M9 21h6"/><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M7 12h10"/>',
+  add: '<path d="M12 5v14M5 12h14"/>',
 };
 const TYPE_HINTS = {
   [SCATTER]: 'Zusammenhang zweier Größen',
@@ -64,6 +65,8 @@ const CAT_LABELS = {
 const state = {
   headers: [], rows: [], numCols: [],
   fileName: '', path: '', csvText: '',
+  sources: [],                                  // geladene CSV-Dateien (mehrere zum Vergleich)
+  axis: { xmin: null, xmax: null, ymin: null, ymax: null },   // null = automatisch
   info: { delimiter: ';', header: true },
   chartType: SCATTER, xCol: null, yCol: null, valueCol: null, catCol: null,
   agg: 'Mittelwert', binWidth: 0, histRelative: false, regression: false,
@@ -199,6 +202,31 @@ function regressionLines() {
   return out;
 }
 
+/** [lo, hi] mit optional festgelegten Grenzen (ungültige Vorgaben werden ignoriert). */
+function rangeWith(lo, hi, min, max) {
+  const a = min !== null ? min : lo, b = max !== null ? max : hi;
+  return b > a ? [a, b] : [lo, hi];
+}
+
+/** Achse [lo, hi, Teilstriche]: automatisch „schön“ oder von Hand begrenzt (min/max = null → automatisch). */
+function scaleAxis(dmin, dmax, pad, min, max) {
+  const auto = S.niceTicks(dmin, dmax, 5, pad);
+  if (min === null && max === null) return auto;
+  const [lo, hi] = rangeWith(auto[0], auto[1], min, max);
+  if (lo === auto[0] && hi === auto[1]) return auto;
+  const ticks = S.niceTicks(lo, hi, 5, 0)[2].filter(t => t >= lo - 1e-9 * (hi - lo) && t <= hi + 1e-9 * (hi - lo));
+  return [lo, hi, ticks];
+}
+
+/** Boxplot mit Ausreißer-Regel: [Werte ohne Ausreißer, Ausreißer] (1,5·IQR um die Quartile). */
+function splitOutliers(vals) {
+  if (state.chartType !== BOX || !state.outliers || !vals.length) return [vals, []];
+  const d = S.describe(vals);
+  const lo = d.q1 - 1.5 * d.iqr, hi = d.q3 + 1.5 * d.iqr;
+  const kept = vals.filter(v => v >= lo && v <= hi);
+  return kept.length ? [kept, vals.filter(v => v < lo || v > hi)] : [vals, []];
+}
+
 const histBins = () => S.histogramBins(columnValues(state.yCol), state.binWidth);
 
 function boxGroups() {
@@ -309,8 +337,8 @@ function drawXY(g) {
     if (x < xmin) xmin = x; if (x > xmax) xmax = x;
     if (y < ymin) ymin = y; if (y > ymax) ymax = y;
   }
-  const [xlo, xhi, xt] = S.niceTicks(xmin, xmax, 5, 0.03);
-  const [ylo, yhi, yt] = S.niceTicks(ymin, ymax, 5, 0.03);
+  const [xlo, xhi, xt] = scaleAxis(xmin, xmax, 0.03, state.axis.xmin, state.axis.xmax);
+  const [ylo, yhi, yt] = scaleAxis(ymin, ymax, 0.03, state.axis.ymin, state.axis.ymax);
   const area = plotArea(g, yt.map(t => fmt(t)));
   if (!area) return null;
   const [left, top, pw, ph] = area;
@@ -358,7 +386,8 @@ function drawBars(g) {
   if (!data.length) return 'Keine gültigen Werte für die gewählten Spalten.';
   if (data.length > MAX_GROUPS) { data = data.slice(0, MAX_GROUPS); note(g, `nur die ersten ${MAX_GROUPS} Kategorien`); }
   const vals = data.map(d => d[1]);
-  const [lo, hi, ticks] = S.niceTicks(Math.min(0, ...vals), Math.max(0, ...vals));
+  const [amin, amax] = state.chartType === COLUMN ? [state.axis.ymin, state.axis.ymax] : [state.axis.xmin, state.axis.xmax];
+  const [lo, hi, ticks] = scaleAxis(Math.min(0, ...vals), Math.max(0, ...vals), 0, amin, amax);
   const catColor = categoryColorMap();
   const colorOf = name => catColor.get(name) || C.accent;
   const n = data.length;
@@ -371,12 +400,18 @@ function drawBars(g) {
     titles(g, area, state.headers[state.catCol], valueTitle());
     const ay = v => top + ph - (v - lo) / (hi - lo) * ph;
     const slot = pw / n;
+    g.clipStart(left, top, pw, ph);
     data.forEach(([name, v], i) => {
       const x0 = left + i * slot, bw = slot * 0.7;
       const y0 = Math.min(ay(0), ay(v)), y1 = Math.max(ay(0), ay(v));
       g.rect(x0 + (slot - bw) / 2, y0, bw, y1 - y0, colorOf(name), '', `${catName(name)}: ${fmt(v)}`);
+    });
+    g.clipEnd();
+    data.forEach(([name, v], i) => {
+      const x0 = left + i * slot;
       g.text(x0 + slot / 2, top + ph + 10, elide(catName(name), AXIS_SIZE, slot - 2), { anchor: 'middle', color: C.textDim });
-      if (slot >= 28) g.text(x0 + slot / 2, v >= 0 ? y0 - 7 : y1 + 7, fmt(v, 2), { anchor: 'middle' });
+      const ty = v >= 0 ? Math.min(ay(0), ay(v)) - 7 : Math.max(ay(0), ay(v)) + 7;
+      if (slot >= 28 && ty >= top && ty <= top + ph) g.text(x0 + slot / 2, ty, fmt(v, 2), { anchor: 'middle' });
     });
     return null;
   }
@@ -391,12 +426,18 @@ function drawBars(g) {
   titles(g, area, valueTitle(), null);
   const ax = v => left + (v - lo) / (hi - lo) * pw;
   const slot = ph / n;
+  g.clipStart(left, top, pw, ph);
   data.forEach(([name, v], i) => {
     const y0 = top + i * slot, bh = slot * 0.7;
     const x0 = Math.min(ax(0), ax(v)), x1 = Math.max(ax(0), ax(v));
     g.rect(x0, y0 + (slot - bh) / 2, x1 - x0, bh, colorOf(name), '', `${catName(name)}: ${fmt(v)}`);
+  });
+  g.clipEnd();
+  data.forEach(([name, v], i) => {
+    const y0 = top + i * slot;
     g.text(left - 6, y0 + slot / 2, elide(catName(name), AXIS_SIZE, lw), { anchor: 'end', color: C.textDim });
-    if (slot >= 14) g.text(x1 + 4, y0 + slot / 2, fmt(v, 2));
+    const tx = Math.max(ax(0), ax(v)) + 4;
+    if (slot >= 14 && tx <= left + pw) g.text(tx, y0 + slot / 2, fmt(v, 2));
   });
   return null;
 }
@@ -460,18 +501,23 @@ function drawHist(g) {
   if (!bins.length) return 'Keine Zahlenwerte in der gewählten Spalte.';
   const total = bins.reduce((a, b) => a + b[2], 0);
   const heights = bins.map(b => (state.histRelative ? b[2] / total : b[2]));
-  const [ylo, yhi, yt] = S.niceTicks(0, Math.max(...heights));
+  const [ylo, yhi, yt] = scaleAxis(0, Math.max(...heights), 0, state.axis.ymin, state.axis.ymax);
   const yLabels = yt.map(t => (state.histRelative ? fmt(t * 100, 1) + ' %' : fmt(t)));
   const area = plotArea(g, yLabels);
   if (!area) return null;
   const [left, top, pw, ph] = area;
-  const xlo = bins[0][0], xhi = bins[bins.length - 1][1];
-  let xt;
-  if (bins.length <= 12) xt = bins.map(b => b[0]).concat([xhi]);
-  else xt = S.niceTicks(xlo, xhi, 8)[2].filter(t => xlo - 1e-9 <= t && t <= xhi + 1e-9);
+  const [xlo, xhi] = rangeWith(bins[0][0], bins[bins.length - 1][1], state.axis.xmin, state.axis.xmax);
   gridY(g, area, ylo, yhi, yt, yLabels);
-  for (const t of xt) g.text(left + (t - xlo) / (xhi - xlo) * pw, top + ph + 10, fmt(t), { anchor: 'middle', color: C.textDim });
-  titles(g, area, state.headers[state.yCol], state.histRelative ? 'relative Häufigkeit' : 'absolute Häufigkeit');
+  titles(g, area, `${state.headers[state.yCol]} (Klassenmitte)`, state.histRelative ? 'relative Häufigkeit' : 'absolute Häufigkeit');
+  // Beschriftung mittig unter jedem Balken (Klassenmitte); bei schmalen Balken jede n-te
+  const mids = bins.map(([a, b]) => fmt((a + b) / 2));
+  const binPx = (bins[0][1] - bins[0][0]) / (xhi - xlo) * pw;
+  const step = Math.max(1, Math.ceil((Math.max(...mids.map(m => textW(m, AXIS_SIZE))) + 8) / binPx));
+  bins.forEach(([a, b], i) => {
+    const mx = left + ((a + b) / 2 - xlo) / (xhi - xlo) * pw;
+    if (i % step === 0 && mx >= left && mx <= left + pw) g.text(mx, top + ph + 10, mids[i], { anchor: 'middle', color: C.textDim });
+  });
+  g.clipStart(left, top, pw, ph);
   bins.forEach(([a, b, c], i) => {
     const x0 = left + (a - xlo) / (xhi - xlo) * pw;
     const x1 = left + (b - xlo) / (xhi - xlo) * pw;
@@ -479,6 +525,7 @@ function drawHist(g) {
     const last = i === bins.length - 1 ? ']' : '[';
     g.rect(x0, y, x1 - x0, top + ph - y, C.accent, ` stroke="${C.plotBg}" stroke-width="1"`, `[${fmt(a)}; ${fmt(b)}${last}: ${c}`);
   });
+  g.clipEnd();
   return null;
 }
 
@@ -516,14 +563,16 @@ function drawBox(g) {
   let groups = [];
   for (const [name, vals] of boxGroups()) {
     if (!vals.length) continue;
-    const s = S.describe(vals);
-    if (state.outliers) [s.w_lo, s.w_hi, s.outliers] = S.tukeyWhiskers(vals, s.q1, s.q3);
-    else [s.w_lo, s.w_hi, s.outliers] = [s.min, s.max, []];
+    // Ausreißer werden aus den Kennwerten herausgenommen (Quartile, Mittelwert … ohne sie berechnet)
+    const [kept, outl] = splitOutliers(vals);
+    const s = S.describe(kept);
+    [s.w_lo, s.w_hi, s.outliers] = [s.min, s.max, outl];
+    s.lo = Math.min(s.min, ...outl); s.hi = Math.max(s.max, ...outl);
     groups.push([name, s]);
   }
   if (!groups.length) return 'Keine Zahlenwerte in der gewählten Spalte.';
   if (groups.length > MAX_GROUPS) { groups = groups.slice(0, MAX_GROUPS); note(g, `nur die ersten ${MAX_GROUPS} Gruppen`); }
-  const [lo, hi, ticks] = S.niceTicks(Math.min(...groups.map(x => x[1].min)), Math.max(...groups.map(x => x[1].max)), 5, 0.03);
+  const [lo, hi, ticks] = scaleAxis(Math.min(...groups.map(x => x[1].lo)), Math.max(...groups.map(x => x[1].hi)), 0.03, state.axis.ymin, state.axis.ymax);
   const area = plotArea(g, ticks.map(t => fmt(t)));
   if (!area) return null;
   const [left, top, pw, ph] = area;
@@ -533,6 +582,7 @@ function drawBox(g) {
   const catColor = categoryColorMap();
   const slot = pw / groups.length;
   const bw = Math.min(slot * 0.5, 90);
+  g.clipStart(left, top, pw, ph);
   groups.forEach(([name, s], i) => {
     const cx = left + (i + 0.5) * slot;
     const color = catColor.get(name) || C.accent;
@@ -546,7 +596,10 @@ function drawBox(g) {
     g.rect(cx - bw / 2, y3, bw, y1 - y3, color, ` fill-opacity="0.27" stroke="${color}" stroke-width="2"`);
     g.line(cx - bw / 2, ay(s.median), cx + bw / 2, ay(s.median), C.text, 2.5);
     if (state.boxLabels) labelBox(g, cx, bw, slot, s, ay);
-    g.text(cx, top + ph + 10, elide(`${catName(name)} (n=${s.n})`, AXIS_SIZE, slot - 2), { anchor: 'middle', color: C.textDim });
+  });
+  g.clipEnd();
+  groups.forEach(([name, s], i) => {
+    g.text(left + (i + 0.5) * slot, top + ph + 10, elide(`${catName(name)} (n=${s.n})`, AXIS_SIZE, slot - 2), { anchor: 'middle', color: C.textDim });
   });
   return null;
 }
@@ -629,6 +682,10 @@ function fillStats() {
         columns = columns.concat(groupedValues(col).slice(0, MAX_GROUPS).map(([name, v]) => [catName(name), v]));
       }
     }
+  }
+  if (t === BOX && state.outliers && columns.length) {
+    columns = columns.map(([name, v]) => [name, splitOutliers(v)[0]]);
+    caption += ' · ohne Ausreißer (1,5·IQR)';
   }
   byId('cap-stats').textContent = caption;
   const tbl = byId('tbl-stats');
@@ -1029,6 +1086,10 @@ function syncSelection() {
   state.regression = byId('chk-reg').checked;
   state.outliers = byId('chk-out').checked;
   state.boxLabels = byId('chk-boxlabel').checked;
+  for (const k of Object.keys(state.axis)) {
+    const v = S.toFloat(byId('inp-' + k).value);
+    state.axis[k] = v !== null && Number.isFinite(v) ? v : null;
+  }
 }
 
 function updateFieldVisibility() {
@@ -1047,6 +1108,8 @@ function updateFieldVisibility() {
   show('f-reg', t === SCATTER);
   show('f-out', t === BOX);
   show('f-boxlabel', t === BOX);
+  show('f-xrange', [SCATTER, LINE, BAR, HIST].includes(t));
+  show('f-yrange', t !== PIE && t !== BAR);
   document.querySelectorAll('#chart-types [data-type]').forEach(b => b.classList.toggle('active', b.dataset.type === t));
   byId('type-hint').textContent = TYPE_HINTS[t];
 }
@@ -1064,53 +1127,136 @@ function refresh() {
 // ════════════════════════════════════════════════════════════
 // Laden
 // ════════════════════════════════════════════════════════════
-/** CSV-Text übernehmen. path = voller Pfad (Desktop/NIT_Code) für den Code-Export. */
-function loadText(text, name, path, keepSettings) {
+/** CSV-Text lesen → Quelle {name, path, text, headers, rows, info} oder null. */
+function parseSource(text, name, path) {
   let parsed;
-  try { parsed = S.parseCSV(text); } catch (e) { setStatus('Fehler beim Lesen: ' + e.message, 'error'); return false; }
-  Object.assign(state, {
-    headers: parsed.headers, rows: parsed.rows, info: parsed.info,
-    fileName: name || 'daten.csv', path: path || '', csvText: text,
-  });
-  if (!keepSettings) {
-    byId('inp-width').value = '';
+  try { parsed = S.parseCSV(text); } catch (e) { setStatus('Fehler beim Lesen: ' + e.message, 'error'); return null; }
+  return { name: name || 'daten.csv', path: path || '', text, headers: parsed.headers, rows: parsed.rows, info: parsed.info };
+}
+
+/** Alle Quellen zu einer Tabelle vereinen: Spalten nach Namen zuordnen, bei mehreren Dateien
+ *  kommt eine Spalte „Datei“ dazu – als Kategorie wählbar, um die Messreihen zu vergleichen. */
+function mergeSources() {
+  const srcs = state.sources;
+  if (srcs.length === 1) {
+    const q = srcs[0];
+    Object.assign(state, { headers: q.headers, rows: q.rows, info: q.info, fileName: q.name, path: q.path, csvText: q.text });
+    return;
   }
+  const headers = [];
+  for (const q of srcs) for (const h of q.headers) if (!headers.includes(h)) headers.push(h);
+  let fileCol = 'Datei';
+  while (headers.includes(fileCol)) fileCol += ' (Quelle)';
+  const rows = [];
+  for (const q of srcs) {
+    const idx = headers.map(h => q.headers.indexOf(h));
+    for (const r of q.rows) rows.push(idx.map(i => (i < 0 || r[i] === undefined ? '' : r[i])).concat([q.name]));
+  }
+  headers.push(fileCol);
+  Object.assign(state, { headers, rows, info: srcs[0].info, fileName: srcs.map(q => q.name).join(' + '), path: '', csvText: '' });
+}
+
+/** Auswahl der Spalten vor dem Neuaufbau merken (per Spaltenname) … */
+function rememberSel() {
+  return ['sel-x', 'sel-y', 'sel-value', 'sel-cat'].map(id => {
+    const v = selVal(byId(id));
+    return [id, v === null ? '' : state.headers[v]];
+  });
+}
+/** … und danach wiederherstellen. */
+function restoreSel(mem) {
+  for (const [id, name] of mem) {
+    const want = name === '' ? '' : String(state.headers.indexOf(name));
+    const el = byId(id);
+    if ([...el.options].some(o => o.value === want)) el.value = want;
+  }
+}
+
+/** Nach Änderung der Quellen: Tabelle, Auswahlfelder und Anzeige neu aufbauen. */
+function applySources(keepSettings, mem) {
+  mergeSources();
+  if (!keepSettings) byId('inp-width').value = '';
   fillDataTable();
   fillCombos();
+  if (mem) restoreSel(mem);
   refreshTestColumns();
   if (!state.headers.length) {
     byId('file-label').textContent = 'Leere oder unlesbare CSV-Datei.';
     setStatus('Leere oder unlesbare CSV-Datei.', 'error');
   } else {
     const info = `${state.rows.length} Zeilen · ${state.headers.length} Spalten`;
-    byId('file-label').textContent = `${state.fileName}\n${info}`;
-    setStatus(info);
+    byId('file-label').textContent = state.sources.length > 1
+      ? state.sources.map(q => `${q.name} (${q.rows.length} Zeilen)`).join('\n') + `\nzusammen: ${info}`
+      : `${state.fileName}\n${info}`;
+    setStatus(state.sources.length > 1 ? `${state.sources.length} Dateien · ${info}` : info);
     document.title = `StatPlot – ${state.fileName}`;
   }
   refresh();
   return true;
 }
 
-/** Datei lesen – UTF-8, sonst Windows-1252 (Excel speichert CSV oft so). */
-function readFile(file) {
-  if (!file) return;
-  file.arrayBuffer().then(buf => {
-    let text;
-    try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf); }
-    catch (e) { text = new TextDecoder('windows-1252').decode(buf); }
-    loadText(text, file.name, '');
-  }).catch(e => setStatus('Datei konnte nicht gelesen werden: ' + e.message, 'error'));
+/** CSV-Text übernehmen (ersetzt alle geladenen Dateien). path = voller Pfad (Desktop/NIT_Code) für den Code-Export. */
+function loadText(text, name, path, keepSettings) {
+  const src = parseSource(text, name, path);
+  if (!src) return false;
+  state.sources = [src];
+  return applySources(keepSettings, null);
 }
 
-function openFile() {
-  if (EMBED && hostCaps.open) { embedSend({ event: 'open' }, embedOrigin); return; }
+/** Weitere CSV-Datei dazunehmen, z. B. um zwei Messreihen zu vergleichen. */
+function addText(text, name, path) {
+  if (!state.headers.length) return loadText(text, name, path);
+  const src = parseSource(text, name, path);
+  if (!src) return false;
+  if (!src.headers.length) { setStatus('Leere oder unlesbare CSV-Datei.', 'error'); return false; }
+  const base = src.name.replace(/\.[^.]+$/, ''), ext = src.name.slice(base.length);
+  let n = 1;
+  while (state.sources.some(q => q.name === src.name)) src.name = `${base} (${++n})${ext}`;
+  const mem = rememberSel();
+  const first = state.sources.length === 1;
+  state.sources.push(src);
+  applySources(true, mem);
+  // Beim ersten Dazunehmen gleich nach Datei unterscheiden
+  if (first && selVal(byId('sel-cat')) === null) { byId('sel-cat').value = String(state.headers.length - 1); refresh(); }
+  return true;
+}
+
+/** Datei lesen – UTF-8, sonst Windows-1252 (Excel speichert CSV oft so). */
+function readFile(file) {
+  return file.arrayBuffer().then(buf => {
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); }
+    catch (e) { return new TextDecoder('windows-1252').decode(buf); }
+  });
+}
+
+/** Mehrere Dateien nacheinander laden; add = zu den vorhandenen dazunehmen statt ersetzen. */
+function readFiles(files, add) {
+  files = [...(files || [])];
+  let chain = Promise.resolve();
+  files.forEach((file, i) => {
+    chain = chain.then(() => readFile(file)).then(text => {
+      if (add || i > 0) addText(text, file.name, ''); else loadText(text, file.name, '');
+    });
+  });
+  chain.catch(e => setStatus('Datei konnte nicht gelesen werden: ' + e.message, 'error'));
+}
+
+let addNext = false;
+function openFile(add) {
+  add = add === true;
+  if (EMBED && hostCaps.open) {
+    if (add) { setStatus('Hier lässt sich nur eine Datei öffnen.'); return; }
+    embedSend({ event: 'open' }, embedOrigin);
+    return;
+  }
   const api = window.pywebview && window.pywebview.api;
   if (api && api.open_file) {
     api.open_file().then(res => {
-      if (res && typeof res.text === 'string') loadText(res.text, res.name, res.path);
+      if (res && typeof res.text === 'string') (add ? addText : loadText)(res.text, res.name, res.path);
     });
     return;
   }
+  addNext = add;
   byId('file-input').click();
 }
 
@@ -1128,13 +1274,14 @@ function loadExample() {
 
 // ── Sitzung im Browser merken (nur Komfort) ──────────────────
 const SESSION_KEY = 'statplot.session';
+const SESSION_SEL = ['sel-x', 'sel-y', 'sel-value', 'sel-cat', 'sel-agg', 'inp-width', 'inp-xmin', 'inp-xmax', 'inp-ymin', 'inp-ymax'];
 function saveSession() {
   if (EMBED) return;
   try {
-    if (!state.csvText || state.csvText.length > 1500000) { localStorage.removeItem(SESSION_KEY); return; }
+    if (!state.sources.length || state.sources.reduce((a, q) => a + q.text.length, 0) > 1500000) { localStorage.removeItem(SESSION_KEY); return; }
     localStorage.setItem(SESSION_KEY, JSON.stringify({
-      csv: state.csvText, name: state.fileName, path: state.path, chartType: state.chartType,
-      sel: ['sel-x', 'sel-y', 'sel-value', 'sel-cat', 'sel-agg', 'inp-width'].map(id => byId(id).value),
+      srcs: state.sources.map(q => [q.name, q.path, q.text]), chartType: state.chartType,
+      sel: SESSION_SEL.map(id => byId(id).value),
       chk: ['chk-rel', 'chk-reg', 'chk-out', 'chk-boxlabel'].map(id => byId(id).checked),
     }));
   } catch (e) { /* Speicher voll oder gesperrt – egal */ }
@@ -1142,10 +1289,12 @@ function saveSession() {
 function restoreSession() {
   let s = null;
   try { s = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch (e) { s = null; }
-  if (!s || typeof s.csv !== 'string') return;
-  if (!loadText(s.csv, s.name, s.path, true)) return;
+  if (!s) return;
+  const srcs = Array.isArray(s.srcs) ? s.srcs : (typeof s.csv === 'string' ? [[s.name, s.path, s.csv]] : []);
+  if (!srcs.length || !loadText(srcs[0][2], srcs[0][0], srcs[0][1], true)) return;
+  for (const q of srcs.slice(1)) addText(q[2], q[0], q[1]);
   if (CHART_TYPES.includes(s.chartType)) state.chartType = s.chartType;
-  ['sel-x', 'sel-y', 'sel-value', 'sel-cat', 'sel-agg', 'inp-width'].forEach((id, i) => {
+  SESSION_SEL.forEach((id, i) => {
     const el = byId(id), v = (s.sel || [])[i];
     if (v === undefined) return;
     if (el.tagName === 'SELECT' && ![...el.options].some(o => o.value === v)) return;
@@ -1160,7 +1309,7 @@ function restoreSession() {
 // Export: PNG, SVG, Python-Code
 // ════════════════════════════════════════════════════════════
 function baseName() {
-  const stem = (state.fileName || 'diagramm').replace(/\.[^.]+$/, '');
+  const stem = state.sources.length > 1 ? 'vergleich' : (state.fileName || 'diagramm').replace(/\.[^.]+$/, '');
   return `${stem}_${state.chartType}`.replace(/[\\/:*?"<>|]+/g, '_');
 }
 
@@ -1231,6 +1380,7 @@ function downloadBlob(blob, name) {
 function codeProblem() {
   const t = state.chartType;
   if (!state.headers.length) return 'Erst eine CSV-Datei öffnen.';
+  if (state.sources.length > 1) return 'Der Python-Code kennt nur eine Datei – bitte eine einzelne CSV-Datei öffnen.';
   if ((t === SCATTER || t === LINE) && (state.xCol === null || state.yCol === null)) return 'Bitte zwei numerische Spalten für X und Y wählen.';
   if (GROUP_CHARTS.includes(t) && state.catCol === null) return 'Bitte eine Kategorie-Spalte wählen.';
   if ((t === HIST || t === BOX) && state.yCol === null) return 'Bitte eine numerische Variable wählen.';
@@ -1523,12 +1673,16 @@ function init() {
 
   ['sel-x', 'sel-y', 'sel-value', 'sel-agg', 'sel-cat', 'chk-rel', 'chk-reg', 'chk-out', 'chk-boxlabel']
     .forEach(id => on(id, 'change', refresh));
-  on('inp-width', 'change', refresh);
   let widthTimer = null;
-  on('inp-width', 'input', () => { clearTimeout(widthTimer); widthTimer = setTimeout(refresh, 400); });
+  ['inp-width', 'inp-xmin', 'inp-xmax', 'inp-ymin', 'inp-ymax'].forEach(id => {
+    on(id, 'change', refresh);
+    on(id, 'input', () => { clearTimeout(widthTimer); widthTimer = setTimeout(refresh, 400); });
+  });
 
-  on('card-open', 'click', openFile);
-  on('btn-open', 'click', openFile);
+  on('card-open', 'click', () => openFile());
+  on('btn-open', 'click', () => openFile());
+  on('card-add', 'click', () => openFile(true));
+  on('btn-add', 'click', () => openFile(true));
   on('btn-example', 'click', loadExample);
   on('btn-png', 'click', exportPNG);
   on('btn-svg', 'click', exportSVG);
@@ -1552,7 +1706,7 @@ function init() {
     }
   });
   document.querySelectorAll('.overlay').forEach(o => o.addEventListener('click', e => { if (e.target === o) closeOverlays(); }));
-  on('file-input', 'change', e => { readFile(e.target.files[0]); e.target.value = ''; });
+  on('file-input', 'change', e => { readFiles(e.target.files, addNext); e.target.value = ''; });
   on('btn-copy-table', 'click', copyCurrentTable);
   byId('tabbar').addEventListener('click', e => { const b = e.target.closest('.tab'); if (b) selectTab(b.dataset.tab); });
 
@@ -1569,14 +1723,13 @@ function init() {
   window.addEventListener('dragover', e => e.preventDefault());
   window.addEventListener('drop', e => {
     e.preventDefault(); dragDepth = 0; document.body.classList.remove('dragging');
-    const f = e.dataTransfer.files && e.dataTransfer.files[0];
-    if (f) readFile(f);
+    readFiles(e.dataTransfer.files, e.shiftKey);       // Umschalt: zu den vorhandenen Daten dazunehmen
   });
 
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') { closeOverlays(); byId('sidebar').classList.remove('open'); byId('menubar').classList.remove('open'); return; }
     const mod = e.ctrlKey || e.metaKey;
-    if (mod && e.key.toLowerCase() === 'o') { e.preventDefault(); openFile(); }
+    if (mod && e.key.toLowerCase() === 'o') { e.preventDefault(); openFile(e.shiftKey); }
   });
 
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(renderChart).observe(byId('chart-box'));
