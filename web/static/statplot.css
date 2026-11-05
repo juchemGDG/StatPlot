@@ -564,3 +564,15 @@ body.host-code #code-to-tab { display: inline-block; }
 #entry-table thead input { font-weight: bold; color: #0f172a; }
 #entry-table input:focus { outline: 2px solid #2563eb; outline-offset: -2px; background: #fff; }
 #entry-error { color: #b91c1c; min-height: 18px; margin: 8px 0 0; }
+
+/* ─── Footer (Lizenzhinweis) ──────────────────────────────── */
+#sidebar-footer {
+  flex-shrink: 0;
+  max-height: 28%;
+  overflow-y: auto;
+  padding: 10px 14px 12px;
+  border-top: 1px solid #1e293b;
+}
+.footer-lizenz { font-size: 10.5px; line-height: 1.45; color: #94a3b8; }
+.footer-lizenz a { color: #cbd5e1; text-decoration: underline; }
+.footer-lizenz a:hover { color: #f8fafc; }
