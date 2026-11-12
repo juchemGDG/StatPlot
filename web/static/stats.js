@@ -513,6 +513,62 @@
     return res;
   }
 
+  // Quantilfunktion der Standardnormalverteilung (Acklam, Fehler < 1,2·10⁻⁹).
+  function normPpf(p) {
+    const a = [-3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02, 1.383577518672690e+02, -3.066479806614716e+01, 2.506628277459239e+00];
+    const b = [-5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02, 6.680131188771972e+01, -1.328068155288572e+01];
+    const c = [-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00, -2.549732539343734e+00, 4.374664141464968e+00, 2.938163982698783e+00];
+    const d = [7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00, 3.754408661907416e+00];
+    const plow = 0.02425;
+    let q, r;
+    if (p < plow) {
+      q = Math.sqrt(-2 * Math.log(p));
+      return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+    }
+    if (p > 1 - plow) return -normPpf(1 - p);
+    q = p - 0.5; r = q * q;
+    return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
+  }
+
+  /**
+   * Korrelationstest nach Pearson (H₀: ρ = 0) für gepaarte Messwerte xs, ys.
+   * t = r·√(n−2)/√(1−r²) mit n−2 Freiheitsgraden; Konfidenzintervall für ρ
+   * über die Fisher-Transformation (wie scipy.stats.pearsonr).
+   */
+  function correlationTest(xs, ys, alternative, alpha) {
+    alternative = alternative || 'two-sided';
+    if (alpha === undefined) alpha = 0.05;
+    const n = xs.length;
+    if (n !== ys.length) throw new TestError('Beide Messreihen brauchen gleich viele Werte.');
+    if (n < 3) throw new TestError('Für einen Korrelationstest sind mindestens 3 Wertepaare nötig.');
+    const mx = sum(xs) / n, my = sum(ys) / n;
+    let sxx = 0, sxy = 0, syy = 0;
+    for (let i = 0; i < n; i++) {
+      sxx += (xs[i] - mx) ** 2; sxy += (xs[i] - mx) * (ys[i] - my); syy += (ys[i] - my) ** 2;
+    }
+    if (sxx === 0 || syy === 0) throw new TestError('Eine der beiden Messreihen hat lauter gleiche Werte – r ist nicht definiert.');
+    const r = Math.max(-1, Math.min(1, sxy / Math.sqrt(sxx * syy)));
+    const df = n - 2;
+    let t, p, ciR = null;
+    if (Math.abs(r) >= 1) {
+      t = r > 0 ? Infinity : -Infinity;
+      p = alternative === 'two-sided' ? 0 : ((alternative === 'greater') === (r > 0) ? 0 : 1);
+      ciR = [r, r];
+    } else {
+      t = r * Math.sqrt(df / (1 - r * r));
+      p = tPValue(t, df, alternative);
+      if (n > 3) {
+        const z = Math.atanh(r), se = 1 / Math.sqrt(n - 3), qz = normPpf(1 - alpha / 2);
+        ciR = [Math.tanh(z - qz * se), Math.tanh(z + qz * se)];
+      }
+    }
+    const m = sxy / sxx;
+    return {
+      n, r, r2: r * r, t, df, p, ci: ciR, m, b: my - m * mx,
+      reject: p <= alpha, alpha, alternative,
+    };
+  }
+
   // ── Python-Code zum Diagramm (csv + matplotlib) ──────────────
   // Gleiche Farbreihenfolge wie in den Diagrammen.
   const COLORS = [
@@ -804,6 +860,6 @@
     median, quartiles, STAT_LABELS, describe, tukeyWhiskers, linearRegression,
     regressionText, niceStep, histogramBins, cumulate, AGGREGATIONS, aggregate, niceTicks,
     ALTERNATIVES, lgamma, betainc, tCdf, tPpf, binomPmf, binomialTest, oneSampleT,
-    twoSampleT, pairedT, TestError, COLORS, generateCode,
+    twoSampleT, pairedT, correlationTest, normPpf, TestError, COLORS, generateCode,
   };
 });

@@ -776,6 +776,7 @@ function copyText(text, okMsg) {
 // Statistik-Tests
 // ════════════════════════════════════════════════════════════
 const BINOM = 'Signifikanztest (Binomialtest)', T1 = 't-Test: eine Stichprobe', T2 = 't-Test: zwei Stichproben';
+const CORR = 'Korrelationstest (Pearson)';
 const T2_WELCH = 'unabhängig (Welch)', T2_POOLED = 'unabhängig (gleiche Varianzen)', T2_PAIRED = 'verbunden (gepaart)';
 const MAX_LEVELS = 50;
 
@@ -805,10 +806,10 @@ function levels(col) {
 }
 
 function initTests() {
-  fillSelect(byId('t-test'), [BINOM, T1, T2]);
+  fillSelect(byId('t-test'), [BINOM, T1, T2, CORR]);
   fillSelect(byId('t-alt'), [['two-sided', 'zweiseitig (≠)'], ['less', 'linksseitig (<)'], ['greater', 'rechtsseitig (>)']]);
   fillSelect(byId('t2-kind'), [T2_WELCH, T2_POOLED, T2_PAIRED]);
-  ['t-test', 't-alt', 'b-hit', 't1-col', 't2-val', 't2-a', 't2-b'].forEach(id => on(id, 'change', runTest));
+  ['t-test', 't-alt', 'b-hit', 't1-col', 't2-val', 't2-a', 't2-b', 'c-x', 'c-y'].forEach(id => on(id, 'change', runTest));
   ['t-alpha', 'b-p0', 't1-mu0', 'b-n', 'b-k'].forEach(id => { on(id, 'change', runTest); on(id, 'input', runTestSoon); });
   on('b-col', 'change', onBinomCol);
   on('t2-kind', 'change', onGroupCol);
@@ -826,10 +827,15 @@ function refreshTestColumns() {
   fillSelect(byId('t2-grp'), hd.map((h, i) => [i, h]));
   fillSelect(byId('t1-col'), num.map(i => [i, hd[i]]));
   fillSelect(byId('t2-val'), num.map(i => [i, hd[i]]));
+  fillSelect(byId('c-x'), num.map(i => [i, hd[i]]));
+  fillSelect(byId('c-y'), num.map(i => [i, hd[i]]));
   // Vorauswahl: keine reine Nummerierung (1, 2, 3, …) als Messgröße
   const measures = num.filter(i => !looksLikeId(i));
   const m0 = measures.length ? measures[0] : num[0];
   if (m0 !== undefined) { byId('t1-col').value = m0; byId('t2-val').value = m0; }
+  // Korrelation: die ersten beiden Messgrößen (Rest: erste beiden numerischen Spalten)
+  const cc = measures.length > 1 ? measures : num;
+  if (cc.length > 1) { byId('c-x').value = cc[0]; byId('c-y').value = cc[1]; }
   // Gruppenspalte: bevorzugt eine nicht-numerische Spalte
   const textCols = hd.map((_, i) => i).filter(i => !num.includes(i));
   if (textCols.length) byId('t2-grp').value = textCols[0];
@@ -878,6 +884,7 @@ function runTest() {
   byId('t-page-binom').style.display = test === BINOM ? '' : 'none';
   byId('t-page-t1').style.display = test === T1 ? '' : 'none';
   byId('t-page-t2').style.display = test === T2 ? '' : 'none';
+  byId('t-page-corr').style.display = test === CORR ? '' : 'none';
   const manual = selVal(byId('b-col')) === null;
   byId('b-hit').disabled = manual;
   byId('b-n').disabled = !manual;
@@ -889,7 +896,7 @@ function runTest() {
   byId('t2-b-lbl').textContent = paired ? 'Spalte B:' : 'Gruppe B:';
   let html;
   try {
-    html = { [BINOM]: runBinom, [T1]: runT1, [T2]: runT2 }[test]();
+    html = { [BINOM]: runBinom, [T1]: runT1, [T2]: runT2, [CORR]: runCorr }[test]();
   } catch (e) {
     if (!(e instanceof S.TestError)) throw e;
     html = `<p class="note">${esc(e.message)}</p>`;
@@ -1023,6 +1030,45 @@ function runT2() {
   }
   const hyp = `H₀: μ<sub>A</sub> = μ<sub>B</sub> &nbsp;·&nbsp; H₁: μ<sub>A</sub> ${esc(S.ALTERNATIVES[a])} μ<sub>B</sub>`;
   return report(title, hyp, rows, r, null, nt);
+}
+
+/** Stärke des Zusammenhangs nach |r| (Faustregel). */
+function corrStrength(r) {
+  const a = Math.abs(r);
+  const size = a < 0.3 ? 'schwacher' : a < 0.5 ? 'mäßiger' : a < 0.8 ? 'starker' : 'sehr starker';
+  if (a < 0.1) return 'praktisch kein linearer Zusammenhang';
+  return `${size} ${r > 0 ? 'positiver' : 'negativer'} linearer Zusammenhang`;
+}
+
+function runCorr() {
+  const [a, alpha] = alt();
+  const cx = selVal(byId('c-x')), cy = selVal(byId('c-y'));
+  if (cx === null || cy === null) throw new S.TestError('Bitte zwei numerische Spalten wählen.');
+  if (cx === cy) throw new S.TestError('Bitte zwei verschiedene Spalten wählen.');
+  const xs = [], ys = [];
+  for (const row of state.rows) {
+    const x = S.toFloat(row[cx]), y = S.toFloat(row[cy]);
+    if (x !== null && y !== null) { xs.push(x); ys.push(y); }
+  }
+  const r = S.correlationTest(xs, ys, a, alpha);
+  const conf = fmt((1 - alpha) * 100, 1);
+  const nameX = esc(state.headers[cx]), nameY = esc(state.headers[cy]);
+  const rows = [
+    ['Variablen', `${nameX} (x) und ${nameY} (y)`],
+    ['Anzahl Wertepaare n', String(r.n)],
+    ['Korrelationskoeffizient r', fmt(r.r, 4)],
+    ['Bestimmtheitsmaß R² = r²', fmt(r.r2, 4)],
+    ['Teststatistik t = r·√(n−2)/√(1−r²)', Number.isFinite(r.t) ? fmt(r.t) : '∞'],
+    ['Freiheitsgrade df = n − 2', String(r.df)],
+    ['p-Wert', pText(r.p)],
+  ];
+  if (r.ci) rows.push([`${conf}-%-Konfidenzintervall für ρ`, `[${fmt(r.ci[0], 3)}; ${fmt(r.ci[1], 3)}]`]);
+  rows.push(['Ausgleichsgerade y = m·x + b', S.regressionText(r.m, r.b, null)]);
+  rows.push(['Stärke des Zusammenhangs', corrStrength(r.r)]);
+  const hyp = `H₀: ρ = 0 (kein linearer Zusammenhang) &nbsp;·&nbsp; H₁: ρ ${esc(S.ALTERNATIVES[a])} 0`;
+  return report('Korrelationstest nach Pearson', hyp, rows, r, null,
+    'r liegt zwischen −1 und +1: Vorzeichen = Richtung, Betrag = Stärke. Der Test erkennt nur lineare Zusammenhänge und '
+    + 'sagt nichts über Ursache und Wirkung: Korrelation ist nicht Kausalität. Streudiagramm anschauen und auf Ausreißer achten!');
 }
 
 function report(title, hyp, rows, r, reason, nt) {

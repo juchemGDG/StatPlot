@@ -140,6 +140,10 @@
             <label><span id="t2-a-lbl">Gruppe A:</span> <select id="t2-a"></select></label>
             <label><span id="t2-b-lbl">Gruppe B:</span> <select id="t2-b"></select></label>
           </div>
+          <div class="test-row" id="t-page-corr">
+            <label>x-Variable: <select id="c-x"></select></label>
+            <label>y-Variable: <select id="c-y"></select></label>
+          </div>
           <div id="t-result"></div>
         </div>
       </div>
@@ -207,7 +211,7 @@
         <h3>Auswerten</h3>
         <ul>
           <li><b>Tabelle</b>: die Rohdaten. <b>Kennwerte</b>: Median, Quartile, Mittelwert, Standardabweichung … (je Gruppe). <b>Häufigkeiten</b>: absolute, relative und kumulierte Häufigkeit.</li>
-          <li><b>Statistik-Tests</b>: Signifikanztest (Binomialtest), t-Test für eine und zwei Stichproben mit p-Wert, Konfidenzintervall und Entscheidung.</li>
+          <li><b>Statistik-Tests</b>: Signifikanztest (Binomialtest), t-Test für eine und zwei Stichproben sowie Korrelationstest (Pearson: r, R², p-Wert) mit Konfidenzintervall und Entscheidung.</li>
           <li><b>Tabelle kopieren</b> legt die gerade sichtbare Tabelle tabulatorgetrennt in die Zwischenablage – zum Einfügen in eine Tabellenkalkulation.</li>
         </ul>
       </section>
@@ -271,7 +275,7 @@
 
 <div id="drop-hint">CSV-Datei hier ablegen</div>
 
-<script src="stats.js?v=1"></script>
-<script src="statplot.js?v=4"></script>
+<script src="stats.js?v=2"></script>
+<script src="statplot.js?v=5"></script>
 </body>
 </html>

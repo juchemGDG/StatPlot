@@ -36,8 +36,9 @@ weiterhin eingebettet in NIT_Code.
   „Tabelle kopieren“ liefert tabulatorgetrennten Text für Tabellenkalkulationen.
 - **Statistik-Tests:** Signifikanztest für eine Wahrscheinlichkeit
   (Binomialtest, wie in der Kursstufe), t-Test für eine Stichprobe, t-Test für
-  zwei Stichproben (Welch, gleiche Varianzen, verbunden) – jeweils mit
-  Hypothesen, p-Wert, Konfidenzintervall, Effektstärke und Entscheidung.
+  zwei Stichproben (Welch, gleiche Varianzen, verbunden) und Korrelationstest
+  nach Pearson (r, R², p-Wert, Konfidenzintervall für ρ) – jeweils mit
+  Hypothesen, p-Wert, Konfidenzintervall und Entscheidung.
 - **Weiterverwenden:** Export als PNG oder SVG; **Als Python-Code** zeigt ein
   Programm (`csv` + `matplotlib`, ohne pandas), das genau dieses Diagramm
   zeichnet – Brücke vom Klicken zum Programmieren.
@@ -68,7 +69,7 @@ Wie in der Schulmathematik (Bildungsplan BW, „Daten und Zufall“):
 | `web/static/statplot.css`, `index.html` | Aussehen und Gerüst (wie PAP/IBD) |
 | `web/static/beispiele/` | Beispieldaten |
 | `desktop/statplot_desktop.py` | Desktop-Hülle (pywebview) |
-| `tests/` | Regressionstest gegen die Python-Originale aus NIT_Code |
+| `tests/` | Regressionstest gegen die Python-Originale aus NIT_Code, Test des Korrelationstests gegen scipy |
 
 Anzeige und SVG-Export sind dieselbe Zeichenroutine; PNG entsteht im Browser
 aus diesem SVG (2-fache Auflösung).
@@ -77,6 +78,7 @@ aus diesem SVG (2-fache Auflösung).
 
 ```bash
 node tests/test_stats.js
+node tests/test_korrelation.js   # Korrelationstest gegen scipy.stats.pearsonr
 ```
 
 Der Test vergleicht `stats.js` mit den Ergebnissen der ursprünglichen
